@@ -317,7 +317,7 @@ const BarrelDistortionText = () => {
             <canvas ref={canvasRef} />
             <div className="controls">
                 <h4>Lens Effect</h4>
-                <label>Distortion: <input type="range" min="-5" max="5" step="0.01" value={distortion} onChange={e => setDistortion(parseFloat(e.target.value))} /></label>
+                <label>Distortion: <input type="range" min="0" max="5" step="0.01" value={distortion} onChange={e => setDistortion(parseFloat(e.target.value))} /></label>
                 <label>Zoom: <input type="range" min="0.5" max="10" step="0.01" value={zoom} onChange={e => setZoom(parseFloat(e.target.value))}/></label>
                 
                 <h4>Text & Color</h4>
