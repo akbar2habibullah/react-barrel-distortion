@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './BarrelDistortionText.css';
 
-// --- Shaders (kept as constants outside the component) ---
+// --- Shaders (unchanged) ---
 const vsSource = `
     attribute vec2 aPosition;
     attribute vec2 aTexCoord;
@@ -49,7 +49,7 @@ const fsSource = `
     }
 `;
 
-// --- Helper functions (can be outside the component) ---
+// --- Helper functions (unchanged) ---
 const compileShader = (gl, source, type) => {
     const shader = gl.createShader(type);
     gl.shaderSource(shader, source);
@@ -91,7 +91,7 @@ const wrapText = (context, text, maxWidth) => {
 
 // --- The React Component ---
 const BarrelDistortionText = () => {
-    // State for all controls
+    // State for all controls (unchanged)
     const [distortion, setDistortion] = useState(2);
     const [zoom, setZoom] = useState(1.5);
     const [fontSize, setFontSize] = useState(80);
@@ -102,33 +102,33 @@ const BarrelDistortionText = () => {
     const [scanlineIntensity, setScanlineIntensity] = useState(0.15);
     const [text, setText] = useState("BUT AT\nLEAST\nYOU'LL");
     
-    // Refs for WebGL and canvas objects that don't need to trigger re-renders
+    // Refs (unchanged)
     const canvasRef = useRef(null);
     const textCanvasRef = useRef(null);
     const glRef = useRef(null);
     const programInfoRef = useRef(null);
     const buffersRef = useRef(null);
     const textureRef = useRef(null);
+    const animationFrameIdRef = useRef(null); // --- CHANGE: Use a ref for the animation frame ID
 
-    // Effect to update body background color when bgColor state changes
+    // Effect to update body background color (unchanged)
     useEffect(() => {
         document.body.style.backgroundColor = bgColor;
         document.body.style.transition = 'background-color 0.3s';
     }, [bgColor]);
 
-    // Effect for re-drawing the text texture when text-related properties change
+    // --- CHANGE: This useEffect now ONLY handles UPDATES, not the initial render. ---
+    // It's still necessary for when the user changes text properties.
     useEffect(() => {
-        if (!textCanvasRef.current || !glRef.current) return;
+        if (!textCanvasRef.current || !glRef.current || !textureRef.current) return;
         
         const textCtx = textCanvasRef.current.getContext('2d');
         const gl = glRef.current;
         const textCanvas = textCanvasRef.current;
 
-        // Clear and set background
         textCtx.fillStyle = bgColor;
         textCtx.fillRect(0, 0, textCanvas.width, textCanvas.height);
         
-        // Set text styles
         textCtx.fillStyle = fontColor;
         textCtx.font = `bold ${fontSize}px 'Times New Roman'`;
         textCtx.textAlign = 'center';
@@ -138,7 +138,6 @@ const BarrelDistortionText = () => {
         textCtx.shadowOffsetX = 2;
         textCtx.shadowOffsetY = 2;
         
-        // Text wrapping logic
         const rawLines = text.split('\n');
         const wrappedLines = [];
         const maxWidth = textCanvas.width * 0.9;
@@ -158,7 +157,6 @@ const BarrelDistortionText = () => {
             textCtx.fillText(line, textCanvas.width / 2, startY + i * lineHeight);
         });
         
-        // Update the WebGL texture with the new text
         gl.bindTexture(gl.TEXTURE_2D, textureRef.current);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textCanvas);
 
@@ -176,7 +174,6 @@ const BarrelDistortionText = () => {
             return;
         }
 
-        // --- Shader Program Setup ---
         const vertexShader = compileShader(gl, vsSource, gl.VERTEX_SHADER);
         const fragmentShader = compileShader(gl, fsSource, gl.FRAGMENT_SHADER);
         const shaderProgram = gl.createProgram();
@@ -201,7 +198,6 @@ const BarrelDistortionText = () => {
             },
         };
 
-        // --- Buffer Setup ---
         const positionBuffer = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
@@ -210,7 +206,6 @@ const BarrelDistortionText = () => {
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0]), gl.STATIC_DRAW);
         buffersRef.current = { position: positionBuffer, texCoord: texCoordBuffer };
 
-        // --- Texture Setup ---
         const texture = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -218,7 +213,6 @@ const BarrelDistortionText = () => {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         textureRef.current = texture;
 
-        // --- 2D Canvas for Text ---
         const textCanvas = document.createElement('canvas');
         textCanvas.width = 512;
         textCanvas.height = 512;
@@ -227,53 +221,74 @@ const BarrelDistortionText = () => {
         gl.viewport(0, 0, canvas.width, canvas.height);
         textCanvasRef.current = textCanvas;
         
-        // --- Animation Loop ---
-        let animationFrameId;
+        // --- CHANGE: Perform the initial text draw right here, before starting the animation.
+        // This logic is copied from the other useEffect.
+        const textCtx = textCanvas.getContext('2d');
+        textCtx.fillStyle = bgColor; // Use initial state
+        textCtx.fillRect(0, 0, textCanvas.width, textCanvas.height);
+        textCtx.fillStyle = fontColor; // Use initial state
+        textCtx.font = `bold ${fontSize}px 'Times New Roman'`; // Use initial state
+        textCtx.textAlign = 'center';
+        textCtx.textBaseline = 'middle';
+        const initialLines = text.split('\n'); // Use initial state
+        const lineHeight = parseFloat(fontSize) * parseFloat(lineSpacing);
+        const totalHeight = (initialLines.length - 1) * lineHeight;
+        const startY = (textCanvas.height - totalHeight) / 2;
+        initialLines.forEach((line, i) => {
+            textCtx.fillText(line, textCanvas.width / 2, startY + i * lineHeight);
+        });
+        gl.bindTexture(gl.TEXTURE_2D, textureRef.current);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textCanvas);
+        // --- END CHANGE ---
+
         const render = (time) => {
-            time *= 0.001; // convert to seconds
+            time *= 0.001; 
             
-            const gl = glRef.current;
+            const currentGl = glRef.current;
             const programInfo = programInfoRef.current;
             const buffers = buffersRef.current;
-            const currentBgColor = hexToRgb(bgColor);
+            
+            if (!currentGl || !programInfo || !buffers) return; // Guard against unmount
+            
+            const currentBgRgb = hexToRgb(bgColor);
 
-            gl.clearColor(currentBgColor.r, currentBgColor.g, currentBgColor.b, 1.0);
-            gl.clear(gl.COLOR_BUFFER_BIT);
-            gl.useProgram(programInfo.program);
+            currentGl.clearColor(currentBgRgb.r, currentBgRgb.g, currentBgRgb.b, 1.0);
+            currentGl.clear(currentGl.COLOR_BUFFER_BIT);
+            currentGl.useProgram(programInfo.program);
             
-            // Set attributes
-            gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
-            gl.vertexAttribPointer(programInfo.attribLocations.position, 2, gl.FLOAT, false, 0, 0);
-            gl.enableVertexAttribArray(programInfo.attribLocations.position);
-            gl.bindBuffer(gl.ARRAY_BUFFER, buffers.texCoord);
-            gl.vertexAttribPointer(programInfo.attribLocations.texCoord, 2, gl.FLOAT, false, 0, 0);
-            gl.enableVertexAttribArray(programInfo.attribLocations.texCoord);
+            currentGl.bindBuffer(currentGl.ARRAY_BUFFER, buffers.position);
+            currentGl.vertexAttribPointer(programInfo.attribLocations.position, 2, currentGl.FLOAT, false, 0, 0);
+            currentGl.enableVertexAttribArray(programInfo.attribLocations.position);
             
-            // Set uniforms that change every frame
-            gl.activeTexture(gl.TEXTURE0);
-            gl.bindTexture(gl.TEXTURE_2D, textureRef.current);
-            gl.uniform1i(programInfo.uniformLocations.sampler, 0);
-            gl.uniform1f(programInfo.uniformLocations.distortion, distortion);
-            gl.uniform1f(programInfo.uniformLocations.zoom, zoom);
-            gl.uniform1f(programInfo.uniformLocations.time, time);
-            gl.uniform1f(programInfo.uniformLocations.noiseAmount, noise);
-            gl.uniform1f(programInfo.uniformLocations.scanlineIntensity, scanlineIntensity);
-            gl.uniform1f(programInfo.uniformLocations.scanlineFrequency, canvas.height * 1.5);
+            currentGl.bindBuffer(currentGl.ARRAY_BUFFER, buffers.texCoord);
+            currentGl.vertexAttribPointer(programInfo.attribLocations.texCoord, 2, currentGl.FLOAT, false, 0, 0);
+            currentGl.enableVertexAttribArray(programInfo.attribLocations.texCoord);
             
-            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            currentGl.activeTexture(currentGl.TEXTURE0);
+            currentGl.bindTexture(currentGl.TEXTURE_2D, textureRef.current);
+            currentGl.uniform1i(programInfo.uniformLocations.sampler, 0);
+            currentGl.uniform1f(programInfo.uniformLocations.distortion, distortion);
+            currentGl.uniform1f(programInfo.uniformLocations.zoom, zoom);
+            currentGl.uniform1f(programInfo.uniformLocations.time, time);
+            currentGl.uniform1f(programInfo.uniformLocations.noiseAmount, noise);
+            currentGl.uniform1f(programInfo.uniformLocations.scanlineIntensity, scanlineIntensity);
+            currentGl.uniform1f(programInfo.uniformLocations.scanlineFrequency, canvas.height * 1.5);
             
-            animationFrameId = requestAnimationFrame(render);
+            currentGl.drawArrays(currentGl.TRIANGLES, 0, 6);
+            
+            animationFrameIdRef.current = requestAnimationFrame(render);
         };
         
         render(0);
 
-        // Cleanup function to stop animation when component unmounts
         return () => {
-            cancelAnimationFrame(animationFrameId);
+            cancelAnimationFrame(animationFrameIdRef.current);
         };
-    // The dependency array is a combination of state values read inside the animation loop
-    }, [distortion, zoom, noise, scanlineIntensity, bgColor]); // Note: bgColor is here because hexToRgb is called in render loop
+    // --- CHANGE: Make this a true "on mount" effect. We read state inside but it only runs once.
+    // The other useEffect handles re-rendering when these state values change.
+    }, []); 
 
+    // JSX part remains the same
     const handleReset = () => {
         setDistortion(2);
         setZoom(1.5);
