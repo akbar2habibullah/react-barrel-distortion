@@ -78,3 +78,12 @@ h4 {
     border-bottom: 1px solid #555;
     padding-bottom: 5px;
 }
+/* --- CHANGE: Add styles for the select dropdown --- */
+select {
+    background: #333;
+    color: white;
+    border: 1px solid #555;
+    padding: 3px 5px;
+    border-radius: 3px;
+    width: 188px; /* Match range input width + some padding */
+}

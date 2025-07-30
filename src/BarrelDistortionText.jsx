@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './BarrelDistortionText.css';
 
-// --- Shaders (unchanged) ---
 const vsSource = `
     attribute vec2 aPosition;
     attribute vec2 aTexCoord;
@@ -11,7 +10,6 @@ const vsSource = `
         vTexCoord = aTexCoord;
     }
 `;
-
 const fsSource = `
     precision mediump float;
     uniform sampler2D uSampler;
@@ -22,11 +20,9 @@ const fsSource = `
     uniform float uScanlineIntensity;
     uniform float uScanlineFrequency;
     varying vec2 vTexCoord;
-
     float random(vec2 st) {
         return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
     }
-    
     void main() {
         vec2 center = vec2(0.5, 0.5);
         vec2 coord = (vTexCoord - center) * uZoom;
@@ -34,11 +30,8 @@ const fsSource = `
         float factor = 1.0 + uDistortion * dist * dist;
         vec2 distortedCoord = coord * factor;
         distortedCoord = distortedCoord / uZoom + center;
-        
         vec4 color = texture2D(uSampler, distortedCoord);
-
         if (distortedCoord.x < 0.0 || distortedCoord.x > 1.0 || distortedCoord.y < 0.0 || distortedCoord.y > 1.0) {
-            // Let the background color from gl.clearColor show through
         } else {
             float scanline = sin(distortedCoord.y * uScanlineFrequency) * uScanlineIntensity;
             color.rgb -= scanline;
@@ -48,8 +41,6 @@ const fsSource = `
         gl_FragColor = color;
     }
 `;
-
-// --- Helper functions (unchanged) ---
 const compileShader = (gl, source, type) => {
     const shader = gl.createShader(type);
     gl.shaderSource(shader, source);
@@ -61,7 +52,6 @@ const compileShader = (gl, source, type) => {
     }
     return shader;
 };
-
 const hexToRgb = (hex) => {
     let result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     return result ? {
@@ -70,7 +60,6 @@ const hexToRgb = (hex) => {
         b: parseInt(result[3], 16) / 255
     } : null;
 };
-
 const wrapText = (context, text, maxWidth) => {
     const words = text.split(' ');
     const lines = [];
@@ -91,7 +80,6 @@ const wrapText = (context, text, maxWidth) => {
 
 // --- The React Component ---
 const BarrelDistortionText = () => {
-    // State for all controls (unchanged)
     const [distortion, setDistortion] = useState(2);
     const [zoom, setZoom] = useState(1.5);
     const [fontSize, setFontSize] = useState(80);
@@ -101,34 +89,56 @@ const BarrelDistortionText = () => {
     const [noise, setNoise] = useState(0.05);
     const [scanlineIntensity, setScanlineIntensity] = useState(0.15);
     const [text, setText] = useState("BUT AT\nLEAST\nYOU'LL");
-    
-    // Refs (unchanged)
+    const [transparencyMode, setTransparencyMode] = useState('normal');
+
+    // Refs for WebGL objects
     const canvasRef = useRef(null);
     const textCanvasRef = useRef(null);
     const glRef = useRef(null);
     const programInfoRef = useRef(null);
     const buffersRef = useRef(null);
     const textureRef = useRef(null);
-    const animationFrameIdRef = useRef(null); // --- CHANGE: Use a ref for the animation frame ID
+    const animationFrameIdRef = useRef(null);
 
-    // Effect to update body background color (unchanged)
+    // --- CHANGE: Refs to hold the latest state values for the animation loop ---
+    const latestState = useRef({});
+
+    // Effect to update body background color
     useEffect(() => {
-        document.body.style.backgroundColor = bgColor;
+        document.body.style.backgroundColor = transparencyMode === 'background' ? 'transparent' : bgColor;
         document.body.style.transition = 'background-color 0.3s';
-    }, [bgColor]);
-
-    // --- CHANGE: This useEffect now ONLY handles UPDATES, not the initial render. ---
-    // It's still necessary for when the user changes text properties.
+    }, [bgColor, transparencyMode]);
+    
+    // --- CHANGE: This useEffect now *only* syncs state to our ref object ---
     useEffect(() => {
+        latestState.current = {
+            distortion,
+            zoom,
+            noise,
+            scanlineIntensity,
+            bgColor,
+            transparencyMode,
+        };
+    }, [distortion, zoom, noise, scanlineIntensity, bgColor, transparencyMode]);
+
+
+    // Effect for re-drawing the text texture when text-related properties change
+    useEffect(() => {
+        // This hook is for updates *after* the initial mount.
+        // The initial draw is handled in the main setup hook.
         if (!textCanvasRef.current || !glRef.current || !textureRef.current) return;
         
         const textCtx = textCanvasRef.current.getContext('2d');
         const gl = glRef.current;
         const textCanvas = textCanvasRef.current;
-
-        textCtx.fillStyle = bgColor;
-        textCtx.fillRect(0, 0, textCanvas.width, textCanvas.height);
         
+        if (transparencyMode === 'background') {
+            textCtx.clearRect(0, 0, textCanvas.width, textCanvas.height);
+        } else {
+            textCtx.fillStyle = bgColor;
+            textCtx.fillRect(0, 0, textCanvas.width, textCanvas.height);
+        }
+
         textCtx.fillStyle = fontColor;
         textCtx.font = `bold ${fontSize}px 'Times New Roman'`;
         textCtx.textAlign = 'center';
@@ -138,6 +148,10 @@ const BarrelDistortionText = () => {
         textCtx.shadowOffsetX = 2;
         textCtx.shadowOffsetY = 2;
         
+        if (transparencyMode === 'text') {
+            textCtx.globalCompositeOperation = 'destination-out';
+        }
+
         const rawLines = text.split('\n');
         const wrappedLines = [];
         const maxWidth = textCanvas.width * 0.9;
@@ -157,16 +171,21 @@ const BarrelDistortionText = () => {
             textCtx.fillText(line, textCanvas.width / 2, startY + i * lineHeight);
         });
         
+        textCtx.globalCompositeOperation = 'source-over';
+        
         gl.bindTexture(gl.TEXTURE_2D, textureRef.current);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textCanvas);
 
-    }, [text, fontSize, lineSpacing, fontColor, bgColor]);
+    }, [text, fontSize, lineSpacing, fontColor, bgColor, transparencyMode]);
 
 
-    // Effect for ONE-TIME WebGL setup and starting the animation loop
+    // --- CHANGE: Main setup hook. Now has an empty dependency array `[]` to run only ONCE. ---
     useEffect(() => {
         const canvas = canvasRef.current;
-        const gl = canvas.getContext('webgl', { preserveDrawingBuffer: true });
+        const gl = canvas.getContext('webgl', { 
+            preserveDrawingBuffer: true,
+            alpha: true 
+        });
         glRef.current = gl;
 
         if (!gl) {
@@ -174,30 +193,14 @@ const BarrelDistortionText = () => {
             return;
         }
 
+        // --- All the setup logic ---
         const vertexShader = compileShader(gl, vsSource, gl.VERTEX_SHADER);
         const fragmentShader = compileShader(gl, fsSource, gl.FRAGMENT_SHADER);
         const shaderProgram = gl.createProgram();
         gl.attachShader(shaderProgram, vertexShader);
         gl.attachShader(shaderProgram, fragmentShader);
         gl.linkProgram(shaderProgram);
-        
-        programInfoRef.current = {
-            program: shaderProgram,
-            attribLocations: {
-                position: gl.getAttribLocation(shaderProgram, 'aPosition'),
-                texCoord: gl.getAttribLocation(shaderProgram, 'aTexCoord'),
-            },
-            uniformLocations: {
-                sampler: gl.getUniformLocation(shaderProgram, 'uSampler'),
-                distortion: gl.getUniformLocation(shaderProgram, 'uDistortion'),
-                zoom: gl.getUniformLocation(shaderProgram, 'uZoom'),
-                time: gl.getUniformLocation(shaderProgram, 'uTime'),
-                noiseAmount: gl.getUniformLocation(shaderProgram, 'uNoiseAmount'),
-                scanlineIntensity: gl.getUniformLocation(shaderProgram, 'uScanlineIntensity'),
-                scanlineFrequency: gl.getUniformLocation(shaderProgram, 'uScanlineFrequency'),
-            },
-        };
-
+        programInfoRef.current = { program: shaderProgram, attribLocations: { position: gl.getAttribLocation(shaderProgram, 'aPosition'), texCoord: gl.getAttribLocation(shaderProgram, 'aTexCoord') }, uniformLocations: { sampler: gl.getUniformLocation(shaderProgram, 'uSampler'), distortion: gl.getUniformLocation(shaderProgram, 'uDistortion'), zoom: gl.getUniformLocation(shaderProgram, 'uZoom'), time: gl.getUniformLocation(shaderProgram, 'uTime'), noiseAmount: gl.getUniformLocation(shaderProgram, 'uNoiseAmount'), scanlineIntensity: gl.getUniformLocation(shaderProgram, 'uScanlineIntensity'), scanlineFrequency: gl.getUniformLocation(shaderProgram, 'uScanlineFrequency') } };
         const positionBuffer = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
@@ -205,14 +208,12 @@ const BarrelDistortionText = () => {
         gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0]), gl.STATIC_DRAW);
         buffersRef.current = { position: positionBuffer, texCoord: texCoordBuffer };
-
         const texture = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         textureRef.current = texture;
-
         const textCanvas = document.createElement('canvas');
         textCanvas.width = 512;
         textCanvas.height = 512;
@@ -221,45 +222,60 @@ const BarrelDistortionText = () => {
         gl.viewport(0, 0, canvas.width, canvas.height);
         textCanvasRef.current = textCanvas;
         
-        // --- CHANGE: Perform the initial text draw right here, before starting the animation.
-        // This logic is copied from the other useEffect.
+        // --- CHANGE: Perform the initial text draw right here, before starting the animation. ---
+        // This ensures the texture is populated for the very first frame.
+        // The other `useEffect` will take over for subsequent updates.
         const textCtx = textCanvas.getContext('2d');
-        textCtx.fillStyle = bgColor; // Use initial state
-        textCtx.fillRect(0, 0, textCanvas.width, textCanvas.height);
+        if (transparencyMode === 'background') { // Use initial state
+            textCtx.clearRect(0, 0, textCanvas.width, textCanvas.height);
+        } else {
+            textCtx.fillStyle = bgColor; // Use initial state
+            textCtx.fillRect(0, 0, textCanvas.width, textCanvas.height);
+        }
         textCtx.fillStyle = fontColor; // Use initial state
         textCtx.font = `bold ${fontSize}px 'Times New Roman'`; // Use initial state
         textCtx.textAlign = 'center';
         textCtx.textBaseline = 'middle';
+        if (transparencyMode === 'text') { // Use initial state
+            textCtx.globalCompositeOperation = 'destination-out';
+        }
         const initialLines = text.split('\n'); // Use initial state
-        const lineHeight = parseFloat(fontSize) * parseFloat(lineSpacing);
-        const totalHeight = (initialLines.length - 1) * lineHeight;
+        const initialLineHeight = parseFloat(fontSize) * parseFloat(lineSpacing);
+        const totalHeight = (initialLines.length - 1) * initialLineHeight;
         const startY = (textCanvas.height - totalHeight) / 2;
         initialLines.forEach((line, i) => {
-            textCtx.fillText(line, textCanvas.width / 2, startY + i * lineHeight);
+            textCtx.fillText(line, textCanvas.width / 2, startY + i * initialLineHeight);
         });
+        textCtx.globalCompositeOperation = 'source-over';
         gl.bindTexture(gl.TEXTURE_2D, textureRef.current);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textCanvas);
-        // --- END CHANGE ---
-
+        
+        // --- Animation Loop ---
+        let renderLoopActive = true;
         const render = (time) => {
-            time *= 0.001; 
-            
+            if(!renderLoopActive) return;
+
+            time *= 0.001;
             const currentGl = glRef.current;
             const programInfo = programInfoRef.current;
             const buffers = buffersRef.current;
             
-            if (!currentGl || !programInfo || !buffers) return; // Guard against unmount
+            // --- CHANGE: Read values from the `latestState` ref ---
+            const { distortion, zoom, noise, scanlineIntensity, bgColor, transparencyMode } = latestState.current;
             
-            const currentBgRgb = hexToRgb(bgColor);
-
-            currentGl.clearColor(currentBgRgb.r, currentBgRgb.g, currentBgRgb.b, 1.0);
+            if (transparencyMode === 'background') {
+                currentGl.clearColor(0, 0, 0, 0);
+            } else {
+                const currentBgRgb = hexToRgb(bgColor);
+                currentGl.clearColor(currentBgRgb.r, currentBgRgb.g, currentBgRgb.b, 1.0);
+            }
             currentGl.clear(currentGl.COLOR_BUFFER_BIT);
+
             currentGl.useProgram(programInfo.program);
             
             currentGl.bindBuffer(currentGl.ARRAY_BUFFER, buffers.position);
             currentGl.vertexAttribPointer(programInfo.attribLocations.position, 2, currentGl.FLOAT, false, 0, 0);
             currentGl.enableVertexAttribArray(programInfo.attribLocations.position);
-            
             currentGl.bindBuffer(currentGl.ARRAY_BUFFER, buffers.texCoord);
             currentGl.vertexAttribPointer(programInfo.attribLocations.texCoord, 2, currentGl.FLOAT, false, 0, 0);
             currentGl.enableVertexAttribArray(programInfo.attribLocations.texCoord);
@@ -267,6 +283,8 @@ const BarrelDistortionText = () => {
             currentGl.activeTexture(currentGl.TEXTURE0);
             currentGl.bindTexture(currentGl.TEXTURE_2D, textureRef.current);
             currentGl.uniform1i(programInfo.uniformLocations.sampler, 0);
+
+            // Pass the latest values to the shaders
             currentGl.uniform1f(programInfo.uniformLocations.distortion, distortion);
             currentGl.uniform1f(programInfo.uniformLocations.zoom, zoom);
             currentGl.uniform1f(programInfo.uniformLocations.time, time);
@@ -279,33 +297,19 @@ const BarrelDistortionText = () => {
             animationFrameIdRef.current = requestAnimationFrame(render);
         };
         
-        render(0);
+        requestAnimationFrame(render);
 
         return () => {
+            renderLoopActive = false;
             cancelAnimationFrame(animationFrameIdRef.current);
         };
-    // --- CHANGE: Make this a true "on mount" effect. We read state inside but it only runs once.
-    // The other useEffect handles re-rendering when these state values change.
-    }, []); 
+    }, []); // <-- This empty array is critical. It ensures this effect runs only ONCE.
 
-    // JSX part remains the same
     const handleReset = () => {
-        setDistortion(2);
-        setZoom(1.5);
-        setText("BUT AT\nLEAST\nYOU'LL");
-        setFontSize(80);
-        setLineSpacing(1.2);
-        setFontColor('#FFFFFF');
-        setBgColor('#000000');
-        setNoise(0.05);
-        setScanlineIntensity(0.15);
+        setDistortion(2); setZoom(1.5); setText("BUT AT\nLEAST\nYOU'LL"); setFontSize(80); setLineSpacing(1.2); setFontColor('#FFFFFF'); setBgColor('#000000'); setNoise(0.05); setScanlineIntensity(0.15); setTransparencyMode('normal');
     };
-
     const handleExport = () => {
-        const link = document.createElement('a');
-        link.href = canvasRef.current.toDataURL('image/png');
-        link.download = 'crt-distortion-effect.png';
-        link.click();
+        const link = document.createElement('a'); link.href = canvasRef.current.toDataURL('image/png'); link.download = 'crt-distortion-effect.png'; link.click();
     };
 
     return (
@@ -313,18 +317,26 @@ const BarrelDistortionText = () => {
             <canvas ref={canvasRef} />
             <div className="controls">
                 <h4>Lens Effect</h4>
-                <label>Distortion: <input type="range" min="-5" max="5" step="0.01" value={distortion} onChange={e => setDistortion(e.target.value)} /></label>
-                <label>Zoom: <input type="range" min="0.5" max="10" step="0.01" value={zoom} onChange={e => setZoom(e.target.value)}/></label>
+                <label>Distortion: <input type="range" min="-5" max="5" step="0.01" value={distortion} onChange={e => setDistortion(parseFloat(e.target.value))} /></label>
+                <label>Zoom: <input type="range" min="0.5" max="10" step="0.01" value={zoom} onChange={e => setZoom(parseFloat(e.target.value))}/></label>
                 
                 <h4>Text & Color</h4>
-                <label>Font Size: <input type="range" min="20" max="200" step="1" value={fontSize} onChange={e => setFontSize(e.target.value)}/></label>
-                <label>Line Spacing: <input type="range" min="0.8" max="2.0" step="0.05" value={lineSpacing} onChange={e => setLineSpacing(e.target.value)}/></label>
-                <label>Font Color: <input type="color" value={fontColor} onChange={e => setFontColor(e.target.value)}/></label>
-                <label>Background: <input type="color" value={bgColor} onChange={e => setBgColor(e.target.value)}/></label>
+                <label>
+                    Transparency:
+                    <select value={transparencyMode} onChange={e => setTransparencyMode(e.target.value)}>
+                        <option value="normal">Normal</option>
+                        <option value="text">Transparent Text</option>
+                        <option value="background">Transparent Background</option>
+                    </select>
+                </label>
+                <label>Font Size: <input type="range" min="20" max="200" step="1" value={fontSize} onChange={e => setFontSize(parseInt(e.target.value, 10))}/></label>
+                <label>Line Spacing: <input type="range" min="0.8" max="2.0" step="0.05" value={lineSpacing} onChange={e => setLineSpacing(parseFloat(e.target.value))}/></label>
+                <label>Font Color: <input type="color" value={fontColor} onChange={e => setFontColor(e.target.value)} disabled={transparencyMode === 'text'} /></label>
+                <label>Background: <input type="color" value={bgColor} onChange={e => setBgColor(e.target.value)} disabled={transparencyMode === 'background'} /></label>
 
                 <h4>CRT Effect</h4>
-                <label>Noise: <input type="range" min="0" max="0.2" step="0.005" value={noise} onChange={e => setNoise(e.target.value)}/></label>
-                <label>Scanlines: <input type="range" min="0" max="0.5" step="0.01" value={scanlineIntensity} onChange={e => setScanlineIntensity(e.target.value)}/></label>
+                <label>Noise: <input type="range" min="0" max="0.2" step="0.005" value={noise} onChange={e => setNoise(parseFloat(e.target.value))}/></label>
+                <label>Scanlines: <input type="range" min="0" max="0.5" step="0.01" value={scanlineIntensity} onChange={e => setScanlineIntensity(parseFloat(e.target.value))}/></label>
                 
                 <div className="text-input">
                     <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Enter multi-line text"></textarea>
