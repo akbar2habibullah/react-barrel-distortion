@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './BarrelDistortionText.css';
 
 /* global GIF */
@@ -152,7 +152,12 @@ const BarrelDistortionText = () => {
   const [blurAmount, setBlurAmount] = useState(0.5);
   const [glitchIntensity, setGlitchIntensity] = useState(0.5);
   const [isRenderingGif, setIsRenderingGif] = useState(false);
-  
+
+  // --- NEW: State for typing animation ---
+  const [enableTypingAnimation, setEnableTypingAnimation] = useState(false);
+  const [typingFrameDuration, setTypingFrameDuration] = useState(500); // ms per word/line
+  const [typingEndPause, setTypingEndPause] = useState(1500); // ms pause on full text
+
   // --- Refs ---
   const canvasRef = useRef(null);
   const textCanvasRef = useRef(null);
@@ -162,7 +167,6 @@ const BarrelDistortionText = () => {
   const textureRef = useRef(null);
   const animationFrameIdRef = useRef(null);
   const latestState = useRef({});
-  
   // --- Effects ---
   
   // Effect to sync state to ref
@@ -184,24 +188,22 @@ const BarrelDistortionText = () => {
     document.body.style.backgroundColor = transparencyMode === 'background' ? 'transparent' : bgColor;
     document.body.style.transition = 'background-color 0.3s';
   }, [bgColor, transparencyMode]);
-  
-  // Effect to render text to texture
-  useEffect(() => {
+
+  // This function can now be called on-demand to update the text texture.
+  const updateTextTexture = useCallback((textToRender) => {
     if (!textCanvasRef.current || !glRef.current || !textureRef.current) return;
     
     const textCtx = textCanvasRef.current.getContext('2d');
     const gl = glRef.current;
     const textCanvas = textCanvasRef.current;
-    
-    // Clear or fill background based on transparency mode
+
     if (transparencyMode === 'background') {
       textCtx.clearRect(0, 0, textCanvas.width, textCanvas.height);
     } else {
       textCtx.fillStyle = bgColor;
       textCtx.fillRect(0, 0, textCanvas.width, textCanvas.height);
     }
-    
-    // Configure text style
+
     textCtx.fillStyle = fontColor;
     textCtx.font = `bold ${fontSize}px 'Times New Roman'`;
     textCtx.textAlign = 'center';
@@ -211,13 +213,11 @@ const BarrelDistortionText = () => {
     textCtx.shadowOffsetX = 2;
     textCtx.shadowOffsetY = 2;
     
-    // Handle transparency mode
     if (transparencyMode === 'text') {
       textCtx.globalCompositeOperation = 'destination-out';
     }
     
-    // Process text lines (with wrapping if needed)
-    const rawLines = text.split('\n');
+    const rawLines = textToRender.split('\n');
     const wrappedLines = [];
     const maxWidth = textCanvas.width * 0.9;
     
@@ -228,8 +228,7 @@ const BarrelDistortionText = () => {
         wrappedLines.push(line);
       }
     });
-    
-    // Draw text lines
+
     const lineHeight = parseFloat(fontSize) * parseFloat(lineSpacing);
     const totalHeight = (wrappedLines.length - 1) * lineHeight;
     const startY = (textCanvas.height - totalHeight) / 2;
@@ -237,14 +236,20 @@ const BarrelDistortionText = () => {
     wrappedLines.forEach((line, i) => {
       textCtx.fillText(line, textCanvas.width / 2, startY + i * lineHeight);
     });
-    
-    // Reset composite operation and update texture
+
     textCtx.globalCompositeOperation = 'source-over';
     gl.bindTexture(gl.TEXTURE_2D, textureRef.current);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textCanvas);
-  }, [text, fontSize, lineSpacing, fontColor, bgColor, transparencyMode]);
+
+  }, [fontSize, lineSpacing, fontColor, bgColor, transparencyMode]); // Dependencies
+
+  // Effect to render text to texture for the live preview
+  useEffect(() => {
+    // This now just calls our refactored function
+    updateTextTexture(text);
+  }, [text, updateTextTexture]); // Depends on the text state and the function itself
   
-  // Main WebGL setup effect
+  // Main WebGL setup effect (No changes inside, but it's long, so keeping it collapsed)
   useEffect(() => {
     const canvas = canvasRef.current;
     const gl = canvas.getContext('webgl', { 
@@ -324,37 +329,8 @@ const BarrelDistortionText = () => {
     gl.viewport(0, 0, canvas.width, canvas.height);
     textCanvasRef.current = textCanvas;
     
-    // Initial text rendering
-    const textCtx = textCanvas.getContext('2d');
-    
-    if (transparencyMode === 'background') {
-      textCtx.clearRect(0, 0, textCanvas.width, textCanvas.height);
-    } else {
-      textCtx.fillStyle = bgColor;
-      textCtx.fillRect(0, 0, textCanvas.width, textCanvas.height);
-    }
-    
-    textCtx.fillStyle = fontColor;
-    textCtx.font = `bold ${fontSize}px 'Times New Roman'`;
-    textCtx.textAlign = 'center';
-    textCtx.textBaseline = 'middle';
-    
-    if (transparencyMode === 'text') {
-      textCtx.globalCompositeOperation = 'destination-out';
-    }
-    
-    const initialLines = text.split('\n');
-    const initialLineHeight = parseFloat(fontSize) * parseFloat(lineSpacing);
-    const totalHeight = (initialLines.length - 1) * initialLineHeight;
-    const startY = (textCanvas.height - totalHeight) / 2;
-    
-    initialLines.forEach((line, i) => {
-      textCtx.fillText(line, textCanvas.width / 2, startY + i * initialLineHeight);
-    });
-    
-    textCtx.globalCompositeOperation = 'source-over';
-    gl.bindTexture(gl.TEXTURE_2D, textureRef.current);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textCanvas);
+    // Initial text rendering (now uses the dedicated function)
+    updateTextTexture(text);
     
     // Draw scene function
     const drawScene = (time) => {
@@ -428,7 +404,7 @@ const BarrelDistortionText = () => {
       renderLoopActive = false;
       cancelAnimationFrame(animationFrameIdRef.current);
     };
-  }, []);
+  }, [updateTextTexture, text]);
   
   // --- Event Handlers ---
   const handleReset = () => {
@@ -444,15 +420,58 @@ const BarrelDistortionText = () => {
     setTransparencyMode('normal');
     setBlurAmount(0.5);
     setGlitchIntensity(0.5);
+    setEnableTypingAnimation(false);
+    setTypingFrameDuration(500);
+    setTypingEndPause(1500);
+  };
+
+  // --- NEW: Helper to generate the text sequence for animation ---
+  const generateTextSequence = (fullText) => {
+    const words = fullText.split(/(\s+)/).filter(w => w.trim().length > 0);
+    const sequence = [];
+    let currentText = '';
+    for (let i = 0; i < words.length; i++) {
+        currentText = currentText ? `${currentText} ${words[i]}` : words[i];
+        sequence.push(currentText);
+    }
+    return sequence.length > 0 ? sequence : [fullText];
   };
   
+  // --- MODIFIED: PNG export now supports typing animation ---
   const handleExportPng = () => {
-    const link = document.createElement('a');
-    link.href = canvasRef.current.toDataURL('image/png');
-    link.download = 'crt-distortion-effect.png';
-    link.click();
+    const drawScene = latestState.current.drawScene;
+    if (!drawScene) {
+      console.error("Drawing function not ready.");
+      return;
+    }
+
+    if (!enableTypingAnimation) {
+      // Original behavior
+      const link = document.createElement('a');
+      link.href = canvasRef.current.toDataURL('image/png');
+      link.download = 'crt-distortion-effect.png';
+      link.click();
+    } else {
+      // --- NEW: Animation behavior ---
+      const sequence = generateTextSequence(text);
+      sequence.forEach((subText, index) => {
+        // Update the texture with the current part of the text
+        updateTextTexture(subText);
+        // Draw the scene (at a static time, since the animation is the text itself)
+        drawScene(0); 
+
+        // Create and trigger download for this frame
+        const link = document.createElement('a');
+        link.href = canvasRef.current.toDataURL('image/png');
+        link.download = `crt-animation-frame-${index + 1}.png`;
+        link.click();
+      });
+      // Restore the original full text in the preview
+      updateTextTexture(text);
+    }
   };
   
+  // --- MODIFIED: GIF export now supports typing animation ---
   const handleExportGif = async () => {
     if (isRenderingGif) return;
     setIsRenderingGif(true);
@@ -469,22 +488,42 @@ const BarrelDistortionText = () => {
       quality: 10, 
       workerScript: '/gif.worker.js' 
     });
-    
-    const duration = 2; 
-    const fps = 24; 
-    const numFrames = duration * fps; 
+
+    const fps = 24;
     const frameDelay = 1000 / fps;
     
-    for (let i = 0; i < numFrames; i++) {
-      const time = i / fps;
-      drawScene(time);
-      
-      const frame = document.createElement('canvas');
-      frame.width = canvasRef.current.width;
-      frame.height = canvasRef.current.height;
-      frame.getContext('2d').drawImage(canvasRef.current, 0, 0);
-      
-      gif.addFrame(frame, { delay: frameDelay });
+    if (!enableTypingAnimation) {
+      // Original behavior: animate CRT effects over 2 seconds
+      const duration = 2;
+      const numFrames = duration * fps; 
+      for (let i = 0; i < numFrames; i++) {
+        const time = i / fps;
+        drawScene(time);
+        gif.addFrame(canvasRef.current, { copy: true, delay: frameDelay });
+      }
+    } else {
+      // --- NEW: Typing animation behavior ---
+      const sequence = generateTextSequence(text);
+      let totalTime = 0;
+
+      for (let i = 0; i < sequence.length; i++) {
+        const subText = sequence[i];
+        const isLastFrame = i === sequence.length - 1;
+        
+        // Determine duration for this frame (longer pause for the last one)
+        const duration = isLastFrame ? typingEndPause : typingFrameDuration;
+        const numFramesForWord = Math.round((duration / 1000) * fps);
+
+        // Update the texture with the current text
+        updateTextTexture(subText);
+
+        // Render this text for its specified duration
+        for (let j = 0; j < numFramesForWord; j++) {
+          drawScene(totalTime);
+          gif.addFrame(canvasRef.current, { copy: true, delay: frameDelay });
+          totalTime += 1 / fps;
+        }
+      }
     }
     
     gif.on('finished', (blob) => {
@@ -494,6 +533,7 @@ const BarrelDistortionText = () => {
       link.click();
       URL.revokeObjectURL(link.href);
       setIsRenderingGif(false);
+      updateTextTexture(text);
     });
     
     gif.render();
@@ -637,6 +677,42 @@ const BarrelDistortionText = () => {
             onChange={e => setScanlineIntensity(parseFloat(e.target.value))}
           />
         </label>
+
+        {/* --- NEW: Typing Animation Controls --- */}
+        <h4>Typing Animation (Export)</h4>
+        <label>
+          Enable:
+          <input
+            type="checkbox"
+            disabled={allControlsDisabled}
+            checked={enableTypingAnimation}
+            onChange={e => setEnableTypingAnimation(e.target.checked)}
+          />
+        </label>
+        <label>
+          Word Duration (ms):
+          <input
+            type="range"
+            disabled={allControlsDisabled || !enableTypingAnimation}
+            min="100"
+            max="2000"
+            step="50"
+            value={typingFrameDuration}
+            onChange={e => setTypingFrameDuration(parseInt(e.target.value, 10))}
+          />
+        </label>
+        <label>
+          End Pause (ms):
+          <input
+            type="range"
+            disabled={allControlsDisabled || !enableTypingAnimation}
+            min="0"
+            max="5000"
+            step="100"
+            value={typingEndPause}
+            onChange={e => setTypingEndPause(parseInt(e.target.value, 10))}
+          />
+        </label>
         
         <div className="text-input">
           <textarea 
@@ -668,7 +744,7 @@ const BarrelDistortionText = () => {
               disabled={allControlsDisabled} 
               onClick={handleExportPng}
             >
-              Export PNG
+              {enableTypingAnimation ? 'Export PNGs' : 'Export PNG'}
             </button>
             <button 
               disabled={allControlsDisabled} 
