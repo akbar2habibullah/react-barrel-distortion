@@ -172,6 +172,7 @@ const BarrelDistortionText = () => {
   // Effect to sync state to ref
   useEffect(() => {
     latestState.current = {
+      ...latestState.current, // Preserve existing properties
       distortion,
       zoom,
       noise,
