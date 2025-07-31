@@ -87,3 +87,12 @@ select {
     border-radius: 3px;
     width: 188px; /* Match range input width + some padding */
 }
+
+.footer {
+    text-align: center;
+    margin-top: 20px;
+}
+
+.footer a {
+    color: aqua;
+}

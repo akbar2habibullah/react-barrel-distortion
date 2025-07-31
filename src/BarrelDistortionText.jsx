@@ -754,6 +754,10 @@ const BarrelDistortionText = () => {
               {isRenderingGif ? 'Rendering GIF...' : 'Export GIF'}
             </button>
           </div>
+          <div className='footer'>
+            Copyright © 2025 <a href="https://github.com/akbar2habibullah/react-barrel-distortion" target="_blank" rel="noopener noreferrer">Habibullah Akbar</a>. <br/>
+            All rights reserved.
+          </div>
         </div>
       </div>
     </>
